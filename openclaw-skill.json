@@ -1,0 +1,86 @@
+{
+  "name": "scraping-service",
+  "version": "0.1.0",
+  "description": "Web scraping service for OpenClaw - Extract clean text, HTML, images, hyperlinks, and metadata from websites",
+  "type": "api",
+  "baseUrl": "http://localhost:3052",
+  "authentication": {
+    "type": "api_key",
+    "header": "X-API-Key",
+    "keys": ["scraping-key-1", "scraping-key-2"]
+  },
+  "endpoints": [
+    {
+      "name": "health",
+      "path": "/health",
+      "method": "GET",
+      "description": "Health check endpoint"
+    },
+    {
+      "name": "capabilities",
+      "path": "/v1/capabilities",
+      "method": "GET",
+      "description": "Get service capabilities and supported modes"
+    },
+    {
+      "name": "scrape",
+      "path": "/v1/scrape",
+      "method": "POST",
+      "description": "Single URL scraping with various modes",
+      "parameters": {
+        "url": "string",
+        "fidelity": ["FAST", "DEEP"],
+        "mode": ["CLEAN_TEXT", "FULL_HTML", "PRECISION_SELECTORS", "IMAGE_HUNT", "HYPERLINKS", "METADATA"]
+      }
+    },
+    {
+      "name": "scrape_batch",
+      "path": "/v1/scrape/batch",
+      "method": "POST",
+      "description": "Batch URL scraping (max 10 URLs)",
+      "parameters": {
+        "urls": "array"
+      }
+    },
+    {
+      "name": "scrape_selectors",
+      "path": "/v1/scrape/selectors",
+      "method": "POST",
+      "description": "Precision selector extraction"
+    },
+    {
+      "name": "scrape_images",
+      "path": "/v1/scrape/images",
+      "method": "POST",
+      "description": "Image hunt extraction"
+    },
+    {
+      "name": "scrape_links",
+      "path": "/v1/scrape/links",
+      "method": "POST",
+      "description": "Hyperlink extraction with filtering options"
+    },
+    {
+      "name": "scrape_screenshot",
+      "path": "/v1/scrape/screenshot",
+      "method": "POST",
+      "description": "Page screenshot capture"
+    },
+    {
+      "name": "scrape_store",
+      "path": "/v1/scrape/store",
+      "method": "POST",
+      "description": "Scrape and store to Cogniti memory system"
+    }
+  ],
+  "features": [
+    "FAST mode (HTTP + Readability) for static content",
+    "DEEP mode (Playwright) for JavaScript pages",
+    "6 extraction modes: Clean text, HTML, Selectors, Images, Hyperlinks, Metadata",
+    "Browser automation with stealth mode",
+    "API key authentication",
+    "Per-IP rate limiting",
+    "In-memory caching with TTL",
+    "Cogniti memory system integration"
+  ]
+}

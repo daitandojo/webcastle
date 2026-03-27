@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  scraping-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: scraping-api
+    ports:
+      - "3052:3052"
+      - "3053:3053"
+    environment:
+      - NODE_ENV=production
+      - PORT=3052
+      - JWT_SECRET=${JWT_SECRET:-change-this-secret-in-production}
+      - JWT_EXPIRES_IN=7d
+      - API_KEYS=${API_KEYS:-}
+      - REQUIRE_AUTH=true
+      - CACHE_ENABLED=true
+      - CACHE_TTL_MS=3600000
+      - CACHE_MAX_ITEMS=10000
+      - SCRAPER_CONCURRENT=10
+      - SCRAPER_MAX_CRAWL_PAGES=10000
+      - RATE_LIMIT_WINDOW_MS=60000
+      - RATE_LIMIT_MAX_REQUESTS=100
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - LLM_API_URL=${LLM_API_URL:-http://host.docker.internal:11434}
+      - LLM_MODEL=${LLM_MODEL:-llama3.2}
+      - SEARCH_PROVIDER=${SEARCH_PROVIDER:-duckduckgo}
+      - BLOCK_ADS=true
+      - LOG_LEVEL=info
+    volumes:
+      - ./profiles:/app/profiles
+      - ./temp:/app/temp
+      - ./data:/app/data
+    shm_size: 2gb
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3052/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - scraping-network
+
+  # Optional: Redis for distributed rate limiting
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: scraping-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis-data:/data
+  #   networks:
+  #     - scraping-network
+  #   restart: unless-stopped
+
+networks:
+  scraping-network:
+    driver: bridge
+
+volumes:
+  # redis-data:
+  profiles:
+  temp:
+  data:
+
+# Development override
+# Run with: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+# volumes:
+#   profiles:
+#   temp:
+#   data:
