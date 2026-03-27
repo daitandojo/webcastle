@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - WebCastle.ai</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: #0a0a0f;
+      color: #e4e4e7;
+      min-height: 100vh;
+    }
+    .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+    
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.5rem 0;
+      border-bottom: 1px solid #27272a;
+      margin-bottom: 2rem;
+    }
+    .logo { font-size: 1.5rem; font-weight: 700; color: #fff; }
+    .logo span { color: #6366f1; }
+    
+    .logout-btn {
+      background: #27272a;
+      color: #e4e4e7;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    
+    .auth-form {
+      max-width: 400px;
+      margin: 4rem auto;
+      background: #18181b;
+      padding: 2rem;
+      border-radius: 12px;
+      border: 1px solid #27272a;
+    }
+    .auth-form h2 { margin-bottom: 1.5rem; text-align: center; }
+    
+    input {
+      width: 100%;
+      padding: 0.75rem;
+      margin-bottom: 1rem;
+      background: #27272a;
+      border: 1px solid #3f3f46;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 1rem;
+    }
+    input:focus { outline: none; border-color: #6366f1; }
+    
+    button {
+      width: 100%;
+      padding: 0.75rem;
+      background: #6366f1;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #4f46e5; }
+    
+    .error { color: #ef4444; margin-bottom: 1rem; text-align: center; }
+    .success { color: #22c55e; margin-bottom: 1rem; text-align: center; }
+    
+    .dashboard { display: none; }
+    
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .stat-card {
+      background: #18181b;
+      padding: 1.5rem;
+      border-radius: 12px;
+      border: 1px solid #27272a;
+    }
+    .stat-card .label { color: #a1a1aa; font-size: 0.875rem; margin-bottom: 0.5rem; }
+    .stat-card .value { font-size: 2rem; font-weight: 700; color: #fff; }
+    .stat-card .value.credits { color: #6366f1; }
+    
+    .section {
+      background: #18181b;
+      padding: 1.5rem;
+      border-radius: 12px;
+      border: 1px solid #27272a;
+      margin-bottom: 1.5rem;
+    }
+    .section h3 { margin-bottom: 1rem; color: #fff; }
+    
+    .api-key {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem;
+      background: #27272a;
+      border-radius: 6px;
+      margin-bottom: 0.5rem;
+    }
+    .api-key code {
+      font-family: 'JetBrains Mono', monospace;
+      color: #22c55e;
+    }
+    .delete-key {
+      background: #ef4444;
+      width: auto;
+      padding: 0.25rem 0.75rem;
+      font-size: 0.875rem;
+    }
+    
+    .packages {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+    }
+    .package {
+      background: #27272a;
+      padding: 1.5rem;
+      border-radius: 8px;
+      text-align: center;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: border-color 0.2s;
+    }
+    .package:hover { border-color: #6366f1; }
+    .package.selected { border-color: #6366f1; }
+    .package .name { font-weight: 600; margin-bottom: 0.5rem; }
+    .package .credits { color: #6366f1; font-size: 1.5rem; font-weight: 700; }
+    .package .price { color: #a1a1aa; margin-top: 0.5rem; }
+    
+    .usage-table { width: 100%; border-collapse: collapse; }
+    .usage-table th, .usage-table td {
+      padding: 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid #27272a;
+    }
+    .usage-table th { color: #a1a1aa; font-weight: 500; }
+    
+    .create-key-form { display: flex; gap: 0.5rem; }
+    .create-key-form input { flex: 1; margin-bottom: 0; }
+    .create-key-form button { width: auto; }
+    
+    .switch-form { text-align: center; margin-top: 1rem; }
+    .switch-form a { color: #6366f1; cursor: pointer; }
+    
+    .purchases-list { max-height: 300px; overflow-y: auto; }
+    .purchase {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.75rem;
+      background: #27272a;
+      border-radius: 6px;
+      margin-bottom: 0.5rem;
+    }
+    .purchase .status.completed { color: #22c55e; }
+    .purchase .status.pending { color: #eab308; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">Web<span>Castle</span></div>
+      <button class="logout-btn" onclick="logout()">Logout</button>
+    </header>
+    
+    <div id="auth-form" class="auth-form">
+      <h2 id="form-title">Sign In</h2>
+      <div id="message"></div>
+      <form id="form">
+        <input type="email" id="email" placeholder="Email" required>
+        <input type="password" id="password" placeholder="Password" required>
+        <input type="text" id="name" placeholder="Name (register only)" style="display: none;">
+        <button type="submit" id="submit-btn">Sign In</button>
+      </form>
+      <div class="switch-form">
+        <a id="switch-form" onclick="switchForm()">Don't have an account? Register</a>
+      </div>
+    </div>
+    
+    <div id="dashboard" class="dashboard">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="label">Credits</div>
+          <div class="value credits" id="credits">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">API Keys</div>
+          <div class="value" id="api-key-count">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Requests (30 days)</div>
+          <div class="value" id="total-requests">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Credits Used</div>
+          <div class="value" id="credits-used">0</div>
+        </div>
+      </div>
+      
+      <div class="section">
+        <h3>API Keys</h3>
+        <div class="create-key-form">
+          <input type="text" id="key-name" placeholder="Key name (e.g., Production)">
+          <button onclick="createKey()">Create Key</button>
+        </div>
+        <div id="api-keys" style="margin-top: 1rem;"></div>
+      </div>
+      
+      <div class="section">
+        <h3>Purchase Credits</h3>
+        <div class="packages" id="packages"></div>
+        <button onclick="buyCredits()" style="margin-top: 1rem;">Purchase Selected</button>
+      </div>
+      
+      <div class="section">
+        <h3>Recent Usage</h3>
+        <table class="usage-table">
+          <thead>
+            <tr>
+              <th>Endpoint</th>
+              <th>Requests</th>
+              <th>Credits</th>
+            </tr>
+          </thead>
+          <tbody id="usage-table"></tbody>
+        </table>
+      </div>
+      
+      <div class="section">
+        <h3>Purchase History</h3>
+        <div class="purchases-list" id="purchases"></div>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    const API_URL = '';
+    let isRegister = false;
+    let token = localStorage.getItem('token');
+    let selectedPackage = null;
+    
+    if (token) {
+      showDashboard();
+    }
+    
+    function showDashboard() {
+      document.getElementById('auth-form').style.display = 'none';
+      document.getElementById('dashboard').style.display = 'block';
+      loadDashboard();
+    }
+    
+    function switchForm() {
+      isRegister = !isRegister;
+      document.getElementById('form-title').textContent = isRegister ? 'Create Account' : 'Sign In';
+      document.getElementById('submit-btn').textContent = isRegister ? 'Register' : 'Sign In';
+      document.getElementById('switch-form').textContent = isRegister ? 'Already have an account? Sign In' : "Don't have an account? Register";
+      document.getElementById('name').style.display = isRegister ? 'block' : 'none';
+      document.getElementById('message').innerHTML = '';
+    }
+    
+    document.getElementById('form').onsubmit = async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      const name = document.getElementById('name').value;
+      
+      const endpoint = isRegister ? '/v1/user/register' : '/v1/user/login';
+      const body = isRegister ? { email, password, name } : { email, password };
+      
+      try {
+        const res = await fetch(API_URL + endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        
+        if (!data.success) {
+          document.getElementById('message').innerHTML = `<div class="error">${data.error.message}</div>`;
+          return;
+        }
+        
+        token = data.data.token;
+        localStorage.setItem('token', token);
+        showDashboard();
+      } catch (err) {
+        document.getElementById('message').innerHTML = `<div class="error">Connection error</div>`;
+      }
+    };
+    
+    async function loadDashboard() {
+      const res = await fetch(API_URL + '/v1/user/me', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      
+      if (!data.success) {
+        logout();
+        return;
+      }
+      
+      const user = data.data;
+      document.getElementById('credits').textContent = user.credits;
+      document.getElementById('api-key-count').textContent = user.apiKeys.length;
+      document.getElementById('total-requests').textContent = user.usage.summary.totalRequests;
+      document.getElementById('credits-used').textContent = user.usage.summary.totalCredits;
+      
+      const keysHtml = user.apiKeys.map(k => `
+        <div class="api-key">
+          <div>
+            <strong>${k.name}</strong>
+            <code>${k.id.substring(0, 8)}...</code>
+          </div>
+          <button class="delete-key" onclick="deleteKey('${k.id}')">Delete</button>
+        </div>
+      `).join('');
+      document.getElementById('api-keys').innerHTML = keysHtml || '<p style="color: #71717a">No API keys yet</p>';
+      
+      const usageHtml = user.usage.byEndpoint.map(e => `
+        <tr>
+          <td>${e.endpoint}</td>
+          <td>${e.totalRequests}</td>
+          <td>${e.totalCredits}</td>
+        </tr>
+      `).join('');
+      document.getElementById('usage-table').innerHTML = usageHtml || '<tr><td colspan="3">No usage yet</td></tr>';
+      
+      const purchasesHtml = user.purchases.map(p => `
+        <div class="purchase">
+          <span>${p.creditsPurchased} credits - $${p.amountPaid}</span>
+          <span class="status ${p.status}">${p.status}</span>
+        </div>
+      `).join('');
+      document.getElementById('purchases').innerHTML = purchasesHtml || '<p style="color: #71717a">No purchases yet</p>';
+      
+      loadPackages();
+    }
+    
+    async function loadPackages() {
+      const res = await fetch(API_URL + '/v1/user/credits/packages');
+      const data = await res.json();
+      
+      if (data.success) {
+        const packagesHtml = data.data.map(pkg => `
+          <div class="package" onclick="selectPackage('${pkg.id}')" data-id="${pkg.id}">
+            <div class="name">${pkg.name}</div>
+            <div class="credits">${pkg.credits}</div>
+            <div class="price">$${pkg.price}</div>
+          </div>
+        `).join('');
+        document.getElementById('packages').innerHTML = packagesHtml;
+      }
+    }
+    
+    function selectPackage(id) {
+      selectedPackage = id;
+      document.querySelectorAll('.package').forEach(p => p.classList.remove('selected'));
+      document.querySelector(`[data-id="${id}"]`).classList.add('selected');
+    }
+    
+    async function createKey() {
+      const name = document.getElementById('key-name').value;
+      if (!name) return;
+      
+      const res = await fetch(API_URL + '/v1/user/api-keys', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ name })
+      });
+      
+      if (res.ok) {
+        document.getElementById('key-name').value = '';
+        loadDashboard();
+      }
+    }
+    
+    async function deleteKey(keyId) {
+      if (!confirm('Delete this API key?')) return;
+      
+      await fetch(API_URL + '/v1/user/api-keys/' + keyId, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      loadDashboard();
+    }
+    
+    async function buyCredits() {
+      if (!selectedPackage) {
+        alert('Please select a package');
+        return;
+      }
+      
+      const res = await fetch(API_URL + '/v1/user/credits/checkout', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ packageId: selectedPackage })
+      });
+      
+      const data = await res.json();
+      
+      if (data.success && data.data.url) {
+        window.location.href = data.data.url;
+      } else {
+        alert('Checkout error: ' + (data.error?.message || 'Unknown error'));
+      }
+    }
+    
+    function logout() {
+      localStorage.removeItem('token');
+      location.reload();
+    }
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('success')) {
+      alert('Payment successful! Credits have been added.');
+      window.history.replaceState({}, '', '/dashboard');
+    }
+    if (urlParams.get('canceled')) {
+      alert('Payment was canceled.');
+      window.history.replaceState({}, '', '/dashboard');
+    }
+  </script>
+</body>
+</html>

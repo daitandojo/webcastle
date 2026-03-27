@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin - WebCastle.ai</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: #0a0a0f;
+      color: #e4e4e7;
+      min-height: 100vh;
+    }
+    .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+    
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.5rem 0;
+      border-bottom: 1px solid #27272a;
+      margin-bottom: 2rem;
+    }
+    .logo { font-size: 1.5rem; font-weight: 700; color: #fff; }
+    .logo span { color: #6366f1; }
+    
+    .login-form {
+      max-width: 400px;
+      margin: 4rem auto;
+      background: #18181b;
+      padding: 2rem;
+      border-radius: 12px;
+      border: 1px solid #27272a;
+    }
+    .login-form h2 { margin-bottom: 1.5rem; text-align: center; }
+    
+    input {
+      width: 100%;
+      padding: 0.75rem;
+      margin-bottom: 1rem;
+      background: #27272a;
+      border: 1px solid #3f3f46;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 1rem;
+    }
+    input:focus { outline: none; border-color: #6366f1; }
+    
+    button {
+      width: 100%;
+      padding: 0.75rem;
+      background: #6366f1;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    
+    .admin { display: none; }
+    
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .stat-card {
+      background: #18181b;
+      padding: 1.5rem;
+      border-radius: 12px;
+      border: 1px solid #27272a;
+    }
+    .stat-card .label { color: #a1a1aa; font-size: 0.875rem; margin-bottom: 0.5rem; }
+    .stat-card .value { font-size: 2rem; font-weight: 700; color: #fff; }
+    .stat-card .value.green { color: #22c55e; }
+    .stat-card .value.yellow { color: #eab308; }
+    
+    .section {
+      background: #18181b;
+      padding: 1.5rem;
+      border-radius: 12px;
+      border: 1px solid #27272a;
+      margin-bottom: 1.5rem;
+    }
+    .section h3 { margin-bottom: 1rem; color: #fff; }
+    
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+      padding: 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid #27272a;
+    }
+    th { color: #a1a1aa; font-weight: 500; }
+    tr:hover { background: #27272a; }
+    
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge.admin { background: #7c3aed; }
+    .badge.user { background: #3f3f46; }
+    
+    .refresh-btn {
+      width: auto;
+      margin-left: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">Web<span>Castle</span> Admin</div>
+    </header>
+    
+    <div id="login-form" class="login-form">
+      <h2>Admin Login</h2>
+      <div id="message" style="color: #ef4444; margin-bottom: 1rem; text-align: center;"></div>
+      <form id="form">
+        <input type="email" id="email" placeholder="Admin Email" required>
+        <input type="password" id="password" placeholder="Password" required>
+        <button type="submit">Login</button>
+      </form>
+    </div>
+    
+    <div id="admin" class="admin">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="label">Total Users</div>
+          <div class="value" id="total-users">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Total Credits Purchased</div>
+          <div class="value green" id="total-credits">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Total Revenue</div>
+          <div class="value green" id="total-revenue">$0</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Total Requests</div>
+          <div class="value" id="total-requests">0</div>
+        </div>
+      </div>
+      
+      <div class="section">
+        <h3>
+          Users
+          <button class="refresh-btn" onclick="loadAdmin()">Refresh</button>
+        </h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Name</th>
+              <th>Credits</th>
+              <th>API Keys</th>
+              <th>Joined</th>
+              <th>Role</th>
+            </tr>
+          </thead>
+          <tbody id="users-table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    const API_URL = '';
+    let token = localStorage.getItem('adminToken');
+    
+    if (token) {
+      showAdmin();
+    }
+    
+    document.getElementById('form').onsubmit = async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      
+      const res = await fetch(API_URL + '/v1/user/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+      
+      if (!data.success) {
+        document.getElementById('message').textContent = data.error.message;
+        return;
+      }
+      
+      token = data.data.token;
+      localStorage.setItem('adminToken', token);
+      showAdmin();
+    };
+    
+    async function showAdmin() {
+      document.getElementById('login-form').style.display = 'none';
+      document.getElementById('admin').style.display = 'block';
+      loadAdmin();
+    }
+    
+    async function loadAdmin() {
+      const res = await fetch(API_URL + '/v1/admin/stats', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (!res.ok) {
+        localStorage.removeItem('adminToken');
+        location.reload();
+        return;
+      }
+      
+      const data = await res.json();
+      
+      if (data.success) {
+        const stats = data.data;
+        document.getElementById('total-users').textContent = stats.totalUsers;
+        document.getElementById('total-credits').textContent = stats.totalCreditsPurchased;
+        document.getElementById('total-revenue').textContent = '$' + stats.totalRevenue.toFixed(2);
+        document.getElementById('total-requests').textContent = stats.totalRequests;
+        
+        const usersHtml = stats.users.map(u => `
+          <tr>
+            <td>${u.email}</td>
+            <td>${u.name || '-'}</td>
+            <td>${u.credits}</td>
+            <td>${u.apiKeyCount}</td>
+            <td>${new Date(u.createdAt).toLocaleDateString()}</td>
+            <td><span class="badge ${u.isAdmin ? 'admin' : 'user'}">${u.isAdmin ? 'Admin' : 'User'}</span></td>
+          </tr>
+        `).join('');
+        document.getElementById('users-table').innerHTML = usersHtml || '<tr><td colspan="6">No users</td></tr>';
+      }
+    }
+  </script>
+</body>
+</html>

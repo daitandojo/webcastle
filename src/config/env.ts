@@ -83,6 +83,17 @@ const envSchema = z.object({
   // Sitemap
   SCRAPER_MAX_DEPTH: z.string().default('10').transform(Number),
   SCRAPER_SITEMAP_TIMEOUT: z.string().default('60000').transform(Number),
+
+  // Database
+  DB_PATH: z.string().default('./data/webcastle.db'),
+  
+  // Stripe
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_PUBLIC_KEY: z.string().optional(),
+  
+  // Public URL for webhooks/redirects
+  PUBLIC_URL: z.string().default('http://localhost:3052'),
 });
 
 // Parse environment variables
@@ -170,6 +181,17 @@ export const config = {
   // Temporary Storage
   tempDir: env.TEMP_DIR,
   cleanupIntervalHours: env.CLEANUP_INTERVAL_HOURS,
+  
+  // Database
+  dbPath: env.DB_PATH,
+  
+  // Stripe
+  stripeSecretKey: env.STRIPE_SECRET_KEY,
+  stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
+  stripePublicKey: env.STRIPE_PUBLIC_KEY,
+  
+  // Public URL
+  publicUrl: env.PUBLIC_URL,
 };
 
 // Export type for TypeScript

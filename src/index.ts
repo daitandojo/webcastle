@@ -31,6 +31,13 @@ import { ipRateLimiter } from './lib/utils/rate-limiter';
 import { jwtAuth } from './lib/auth/jwt';
 import { apiKeyStore } from './lib/auth/api-key-store';
 import { wsManager } from './lib/websocket';
+import { initializeDatabase } from './lib/db/index';
+import userRoutes from './routes/auth-user';
+import { handleStripeWebhook } from './lib/db/stripe';
+import { checkCredits, deductCreditsAfter, getCreditCost } from './lib/db/credits';
+import adminRoutes from './routes/admin';
+
+initializeDatabase();
 
 // Import route handlers
 import { healthHandler } from './routes/health';
@@ -186,10 +193,20 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 // =============== APPLY MIDDLEWARE ===============
 
-// Apply authentication to all routes except health and landing page
+// Apply authentication to all routes except health, landing page, user auth, webhooks, and dashboard
 app.use((req, res, next) => {
-  const publicPaths = ['/health', '/index.html', '/ws', '/docs'];
-  if (publicPaths.includes(req.path) || req.path === '/' || req.path.endsWith('.js') || req.path.endsWith('.css')) {
+  const publicPaths = ['/health', '/index.html', '/ws', '/docs', '/webhooks', '/dashboard', '/admin'];
+  const authPaths = ['/v1/user/register', '/v1/user/login', '/v1/user/credits/packages'];
+  if (
+    publicPaths.includes(req.path) || 
+    req.path === '/' || 
+    req.path.endsWith('.js') || 
+    req.path.endsWith('.css') ||
+    req.path.startsWith('/webhooks') ||
+    req.path.startsWith('/dashboard') ||
+    req.path.startsWith('/admin') ||
+    (req.method === 'POST' && authPaths.includes(req.path))
+  ) {
     return next();
   }
   return jwtAuth.authenticate()(req, res, next);
@@ -333,6 +350,26 @@ app.post('/v1/auth/keys/:keyId/rotate', rotateKeyHandler);
 
 // Get usage stats (admin)
 app.get('/v1/auth/stats', statsHandler);
+
+// =============== USER AUTH ROUTES ===============
+
+// Stripe webhook (must be before express.json parser)
+app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    const signature = req.headers['stripe-signature'] as string;
+    await handleStripeWebhook(req.body as string, signature);
+    res.json({ received: true });
+  } catch (err: any) {
+    logger.error('Stripe webhook error: ' + err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// User registration and login
+app.use('/v1/user', userRoutes);
+
+// Admin routes
+app.use('/v1/admin', adminRoutes);
 
 // =============== ERROR HANDLING ===============
 
