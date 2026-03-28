@@ -1,8 +1,10 @@
 import Stripe from 'stripe';
 import { config } from '../../config/env';
-import { db } from './index';
+import { db } from './pg';
+import { purchases } from './schema';
 import { v4 as uuidv4 } from 'uuid';
 import { addCredits } from './users';
+import { eq, sql } from 'drizzle-orm';
 
 const stripe = new Stripe(config.stripeSecretKey || 'sk_test_placeholder');
 
@@ -33,8 +35,8 @@ export async function createCheckoutSession(userId: string, packageId: string) {
       },
     ],
     mode: 'payment',
-    success_url: `${config.publicUrl || 'http://localhost:3052'}/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${config.publicUrl || 'http://localhost:3052'}/dashboard?canceled=true`,
+    success_url: `${config.publicUrl}/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${config.publicUrl}/dashboard?canceled=true`,
     metadata: {
       userId,
       packageId,
@@ -43,11 +45,15 @@ export async function createCheckoutSession(userId: string, packageId: string) {
   });
 
   const id = uuidv4();
-  const stmt = db.prepare(`
-    INSERT INTO purchases (id, user_id, stripe_session_id, amount_paid, credits_purchased, status, created_at)
-    VALUES (?, ?, ?, ?, ?, 'pending', ?)
-  `);
-  stmt.run(id, userId, session.id, pkg.price / 100, pkg.credits, Date.now());
+  await db.insert(purchases).values({
+    id,
+    userId,
+    stripeSessionId: session.id,
+    amountPaid: pkg.price / 100,
+    creditsPurchased: pkg.credits,
+    status: 'pending',
+    createdAt: new Date(),
+  });
 
   return session;
 }
@@ -73,11 +79,13 @@ export async function handleStripeWebhook(payload: string, signature: string): P
     const { userId, credits } = session.metadata || {};
 
     if (userId && credits) {
-      const stmt = db.prepare(`
-        UPDATE purchases SET status = 'completed', completed_at = ?, stripe_payment_intent = ?
-        WHERE stripe_session_id = ?
-      `);
-      stmt.run(Date.now(), session.payment_intent, session.id);
+      await db.update(purchases)
+        .set({ 
+          status: 'completed',
+          completedAt: new Date(),
+          stripePaymentIntent: typeof session.payment_intent === 'string' ? session.payment_intent : null,
+        })
+        .where(eq(purchases.stripeSessionId, session.id));
 
       addCredits(userId, parseInt(credits));
       console.log(`Added ${credits} credits to user ${userId}`);
@@ -85,10 +93,25 @@ export async function handleStripeWebhook(payload: string, signature: string): P
   }
 }
 
-export function getPurchaseHistory(userId: string): any[] {
-  const stmt = db.prepare(`
-    SELECT id, amount_paid, credits_purchased, status, created_at as createdAt, completed_at as completedAt
-    FROM purchases WHERE user_id = ? ORDER BY created_at DESC
-  `);
-  return stmt.all(userId);
+export async function getPurchaseHistory(userId: string): Promise<any[]> {
+  const result = await db.select({
+    id: purchases.id,
+    amountPaid: purchases.amountPaid,
+    creditsPurchased: purchases.creditsPurchased,
+    status: purchases.status,
+    createdAt: purchases.createdAt,
+    completedAt: purchases.completedAt,
+  })
+    .from(purchases)
+    .where(eq(purchases.userId, userId))
+    .orderBy(sql`${purchases.createdAt} DESC`);
+
+  return result.map(p => ({
+    id: p.id,
+    amountPaid: p.amountPaid,
+    creditsPurchased: p.creditsPurchased,
+    status: p.status,
+    createdAt: p.createdAt.getTime(),
+    completedAt: p.completedAt?.getTime() || null,
+  }));
 }

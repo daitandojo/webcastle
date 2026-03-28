@@ -27,17 +27,19 @@ import path from 'path';
 import fs from 'fs';
 import { createServer } from 'http';
 import { config } from './config/env';
-import { ipRateLimiter } from './lib/utils/rate-limiter';
+import { ipRateLimiter } from './lib/utils/redis-rate-limiter';
 import { jwtAuth } from './lib/auth/jwt';
 import { apiKeyStore } from './lib/auth/api-key-store';
 import { wsManager } from './lib/websocket';
-import { initializeDatabase } from './lib/db/index';
+import { initializeDatabase } from './lib/db/pg';
+import { initializeRedis } from './lib/redis';
 import userRoutes from './routes/auth-user';
 import { handleStripeWebhook } from './lib/db/stripe';
 import { checkCredits, deductCreditsAfter, getCreditCost } from './lib/db/credits';
 import adminRoutes from './routes/admin';
 
 initializeDatabase();
+initializeRedis();
 
 // Import route handlers
 import { healthHandler } from './routes/health';
@@ -143,9 +145,9 @@ const authenticateApiKey = (req: express.Request, res: express.Response, next: e
 
 // =============== RATE LIMITING MIDDLEWARE ===============
 
-const rateLimitMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+const rateLimitMiddleware = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
-  const rateLimitResult = ipRateLimiter.check(ip);
+  const rateLimitResult = await ipRateLimiter.check(ip);
 
   if (!rateLimitResult.allowed) {
     return res.status(429).json({

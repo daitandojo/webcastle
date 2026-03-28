@@ -1,7 +1,9 @@
-import { db } from './index';
+import { db } from './pg';
+import { users, credits, apiKeys, usageLogs, purchases } from './schema';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
+import { eq, sql, and, gt } from 'drizzle-orm';
 
 export interface User {
   id: string;
@@ -20,25 +22,29 @@ export interface CreateUserInput {
   name?: string;
 }
 
-export function createUser(input: CreateUserInput): User {
+export async function createUser(input: CreateUserInput): Promise<User> {
   const id = uuidv4();
   const passwordHash = bcrypt.hashSync(input.password, 10);
-  const now = Date.now();
+  const now = new Date();
 
-  const stmt = db.prepare(`
-    INSERT INTO users (id, email, password_hash, name, created_at, updated_at, is_admin, is_active)
-    VALUES (?, ?, ?, ?, ?, ?, 0, 1)
-  `);
-
-  stmt.run(id, input.email.toLowerCase(), passwordHash, input.name || null, now, now);
-
-  return {
+  await db.insert(users).values({
     id,
     email: input.email.toLowerCase(),
     passwordHash,
     name: input.name || null,
     createdAt: now,
     updatedAt: now,
+    isAdmin: false,
+    isActive: true,
+  });
+
+  return {
+    id,
+    email: input.email.toLowerCase(),
+    passwordHash,
+    name: input.name || null,
+    createdAt: now.getTime(),
+    updatedAt: now.getTime(),
     isAdmin: false,
     isActive: true,
   };
@@ -48,166 +54,229 @@ export function verifyPassword(user: User, password: string): boolean {
   return bcrypt.compareSync(password, user.passwordHash);
 }
 
-export function getUserByEmail(email: string): User | null {
-  const stmt = db.prepare(`
-    SELECT id, email, password_hash as passwordHash, name, created_at as createdAt, 
-           updated_at as updatedAt, is_admin as isAdmin, is_active as isActive
-    FROM users WHERE email = ? AND is_active = 1
-  `);
-
-  const row = stmt.get(email.toLowerCase()) as any;
-  if (!row) return null;
-
+export async function getUserByEmail(email: string): Promise<User | null> {
+  const result = await db.select().from(users)
+    .where(eq(users.email, email.toLowerCase()))
+    .limit(1);
+  
+  if (!result[0]) return null;
+  
+  const row = result[0];
   return {
-    ...row,
-    isAdmin: Boolean(row.isAdmin),
-    isActive: Boolean(row.isActive),
+    id: row.id,
+    email: row.email,
+    passwordHash: row.passwordHash,
+    name: row.name,
+    createdAt: row.createdAt.getTime(),
+    updatedAt: row.updatedAt.getTime(),
+    isAdmin: row.isAdmin,
+    isActive: row.isActive,
   };
 }
 
-export function getUserById(id: string): User | null {
-  const stmt = db.prepare(`
-    SELECT id, email, password_hash as passwordHash, name, created_at as createdAt, 
-           updated_at as updatedAt, is_admin as isAdmin, is_active as isActive
-    FROM users WHERE id = ?
-  `);
-
-  const row = stmt.get(id) as any;
-  if (!row) return null;
-
+export async function getUserById(id: string): Promise<User | null> {
+  const result = await db.select().from(users)
+    .where(eq(users.id, id))
+    .limit(1);
+  
+  if (!result[0]) return null;
+  
+  const row = result[0];
   return {
-    ...row,
-    isAdmin: Boolean(row.isAdmin),
-    isActive: Boolean(row.isActive),
+    id: row.id,
+    email: row.email,
+    passwordHash: row.passwordHash,
+    name: row.name,
+    createdAt: row.createdAt.getTime(),
+    updatedAt: row.updatedAt.getTime(),
+    isAdmin: row.isAdmin,
+    isActive: row.isActive,
   };
 }
 
-export function getUserCredits(userId: string): number {
-  const stmt = db.prepare(`
-    SELECT COALESCE(SUM(amount), 0) as total FROM credits WHERE user_id = ?
-  `);
-  const result = stmt.get(userId) as { total: number };
-  return result.total;
+export async function getUserCredits(userId: string): Promise<number> {
+  const result = await db.select({ total: sql<number>`COALESCE(SUM(${credits.amount}), 0)` })
+    .from(credits)
+    .where(eq(credits.userId, userId));
+  
+  return Number(result[0]?.total) || 0;
 }
 
-export function addCredits(userId: string, amount: number, description?: string): void {
+export async function addCredits(userId: string, amount: number): Promise<void> {
   const id = uuidv4();
-  const stmt = db.prepare(`
-    INSERT INTO credits (id, user_id, amount, created_at)
-    VALUES (?, ?, ?, ?)
-  `);
-  stmt.run(id, userId, amount, Date.now());
+  await db.insert(credits).values({
+    id,
+    userId,
+    amount,
+    createdAt: new Date(),
+  });
 }
 
-export function deductCredits(userId: string, amount: number): boolean {
-  const current = getUserCredits(userId);
+export async function deductCredits(userId: string, amount: number): Promise<boolean> {
+  const current = await getUserCredits(userId);
   if (current < amount) return false;
 
   const id = uuidv4();
-  const stmt = db.prepare(`
-    INSERT INTO credits (id, user_id, amount, created_at)
-    VALUES (?, ?, ?, ?)
-  `);
-  stmt.run(id, userId, -amount, Date.now());
+  await db.insert(credits).values({
+    id,
+    userId,
+    amount: -amount,
+    createdAt: new Date(),
+  });
   return true;
 }
 
-export function createApiKey(userId: string, name: string): { id: string; key: string } {
+export async function createApiKey(userId: string, name: string): Promise<{ id: string; key: string }> {
   const id = uuidv4();
   const key = `wc_${crypto.randomBytes(24).toString('base64url')}`;
 
-  const stmt = db.prepare(`
-    INSERT INTO api_keys (id, user_id, key, name, created_at, is_active)
-    VALUES (?, ?, ?, ?, ?, 1)
-  `);
-  stmt.run(id, userId, key, name, Date.now());
+  await db.insert(apiKeys).values({
+    id,
+    userId,
+    key,
+    name,
+    createdAt: new Date(),
+    isActive: true,
+    rateLimitMinute: 60,
+    rateLimitDay: 5000,
+  });
 
   return { id, key };
 }
 
-export function getUserApiKeys(userId: string): any[] {
-  const stmt = db.prepare(`
-    SELECT id, name, created_at as createdAt, last_used_at as lastUsedAt, 
-           is_active as isActive, rate_limit_minute as rateLimitMinute, 
-           rate_limit_day as rateLimitDay
-    FROM api_keys WHERE user_id = ? ORDER BY created_at DESC
-  `);
-  return stmt.all(userId);
+export async function getUserApiKeys(userId: string): Promise<any[]> {
+  const result = await db.select({
+    id: apiKeys.id,
+    name: apiKeys.name,
+    createdAt: apiKeys.createdAt,
+    lastUsedAt: apiKeys.lastUsedAt,
+    isActive: apiKeys.isActive,
+    rateLimitMinute: apiKeys.rateLimitMinute,
+    rateLimitDay: apiKeys.rateLimitDay,
+  })
+    .from(apiKeys)
+    .where(eq(apiKeys.userId, userId))
+    .orderBy(sql`${apiKeys.createdAt} DESC`);
+  
+  return result.map(r => ({
+    ...r,
+    createdAt: r.createdAt?.getTime(),
+    lastUsedAt: r.lastUsedAt?.getTime(),
+  }));
 }
 
-export function verifyApiKey(key: string): { valid: boolean; userId?: string; apiKeyId?: string; credits?: number } {
-  const stmt = db.prepare(`
-    SELECT ak.id as apiKeyId, ak.user_id as userId, u.is_active as isActive
-    FROM api_keys ak
-    JOIN users u ON u.id = ak.user_id
-    WHERE ak.key = ? AND ak.is_active = 1 AND u.is_active = 1
-  `);
+export async function verifyApiKey(key: string): Promise<{ valid: boolean; userId?: string; apiKeyId?: string; credits?: number }> {
+  const result = await db.select({
+    id: apiKeys.id,
+    userId: apiKeys.userId,
+    isActive: apiKeys.isActive,
+    isUserActive: users.isActive,
+  })
+    .from(apiKeys)
+    .innerJoin(users, eq(apiKeys.userId, users.id))
+    .where(and(
+      eq(apiKeys.key, key),
+      eq(apiKeys.isActive, true),
+      eq(users.isActive, true)
+    ))
+    .limit(1);
 
-  const row = stmt.get(key) as any;
-  if (!row) return { valid: false };
+  if (!result[0]) return { valid: false };
 
-  const credits = getUserCredits(row.userId);
-  return { valid: true, userId: row.userId, apiKeyId: row.apiKeyId, credits };
+  const credits_ = await getUserCredits(result[0].userId);
+  return { 
+    valid: true, 
+    userId: result[0].userId, 
+    apiKeyId: result[0].id, 
+    credits: credits_ 
+  };
 }
 
-export function deleteApiKey(userId: string, keyId: string): boolean {
-  const stmt = db.prepare(`
-    UPDATE api_keys SET is_active = 0 WHERE id = ? AND user_id = ?
-  `);
-  const result = stmt.run(keyId, userId);
-  return result.changes > 0;
+export async function deleteApiKey(userId: string, keyId: string): Promise<boolean> {
+  const result = await db.update(apiKeys)
+    .set({ isActive: false })
+    .where(and(eq(apiKeys.id, keyId), eq(apiKeys.userId, userId)));
+  
+  return (result) ? true : false;
 }
 
-export function getAllUsers(): any[] {
-  const stmt = db.prepare(`
-    SELECT u.id, u.email, u.name, u.created_at as createdAt, u.is_admin as isAdmin,
-           (SELECT COALESCE(SUM(amount), 0) FROM credits WHERE user_id = u.id) as credits,
-           (SELECT COUNT(*) FROM api_keys WHERE user_id = u.id) as apiKeyCount
-    FROM users u ORDER BY u.created_at DESC
-  `);
-  return stmt.all();
+export async function getAllUsers(): Promise<any[]> {
+  const result = await db.select({
+    id: users.id,
+    email: users.email,
+    name: users.name,
+    createdAt: users.createdAt,
+    isAdmin: users.isAdmin,
+  })
+    .from(users)
+    .orderBy(sql`${users.createdAt} DESC`);
+  
+  return result.map(r => ({
+    ...r,
+    createdAt: r.createdAt?.getTime(),
+  }));
 }
 
-export function logUsage(userId: string, apiKeyId: string | null, endpoint: string, creditsUsed: number, latencyMs?: number, statusCode?: number): void {
+export async function logUsage(
+  userId: string, 
+  apiKeyId: string | null, 
+  endpoint: string, 
+  creditsUsed: number, 
+  latencyMs?: number, 
+  statusCode?: number
+): Promise<void> {
   const id = uuidv4();
-  const stmt = db.prepare(`
-    INSERT INTO usage_logs (id, user_id, api_key_id, endpoint, credits_used, latency_ms, status_code, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  stmt.run(id, userId, apiKeyId, endpoint, creditsUsed, latencyMs || null, statusCode || null, Date.now());
+  await db.insert(usageLogs).values({
+    id,
+    userId,
+    apiKeyId,
+    endpoint,
+    creditsUsed,
+    latencyMs: latencyMs || null,
+    statusCode: statusCode || null,
+    createdAt: new Date(),
+  });
 }
 
-export function getUserUsage(userId: string, days: number = 30): any {
-  const since = Date.now() - days * 24 * 60 * 60 * 1000;
+export async function getUserUsage(userId: string, days: number = 30): Promise<any> {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  const stmt = db.prepare(`
-    SELECT 
-      COUNT(*) as totalRequests,
-      SUM(credits_used) as totalCredits,
-      AVG(latency_ms) as avgLatencyMs,
-      endpoint
-    FROM usage_logs 
-    WHERE user_id = ? AND created_at > ?
-    GROUP BY endpoint
-    ORDER BY totalRequests DESC
-  `);
+  const byEndpoint = await db.select({
+    endpoint: usageLogs.endpoint,
+    totalRequests: sql<number>`COUNT(*)`,
+    totalCredits: sql<number>`SUM(${usageLogs.creditsUsed})`,
+    avgLatencyMs: sql<number>`AVG(${usageLogs.latencyMs})`,
+  })
+    .from(usageLogs)
+    .where(and(
+      eq(usageLogs.userId, userId),
+      gt(usageLogs.createdAt, since)
+    ))
+    .groupBy(usageLogs.endpoint)
+    .orderBy(sql`COUNT(*) DESC`);
 
-  const byEndpoint = stmt.all(userId, since);
-
-  const summary = db.prepare(`
-    SELECT 
-      COUNT(*) as totalRequests,
-      SUM(credits_used) as totalCredits
-    FROM usage_logs 
-    WHERE user_id = ? AND created_at > ?
-  `).get(userId, since) as any;
+  const summary = await db.select({
+    totalRequests: sql<number>`COUNT(*)`,
+    totalCredits: sql<number>`COALESCE(SUM(${usageLogs.creditsUsed}), 0)`,
+    avgLatencyMs: sql<number>`AVG(${usageLogs.latencyMs})`,
+  })
+    .from(usageLogs)
+    .where(and(
+      eq(usageLogs.userId, userId),
+      gt(usageLogs.createdAt, since)
+    ));
 
   return {
     summary: {
-      totalRequests: summary?.totalRequests || 0,
-      totalCredits: summary?.totalCredits || 0,
-      avgLatencyMs: summary?.avgLatencyMs || 0,
+      totalRequests: Number(summary[0]?.totalRequests) || 0,
+      totalCredits: Number(summary[0]?.totalCredits) || 0,
+      avgLatencyMs: Math.round(Number(summary[0]?.avgLatencyMs) || 0),
     },
-    byEndpoint,
+    byEndpoint: byEndpoint.map(e => ({
+      endpoint: e.endpoint,
+      totalRequests: Number(e.totalRequests),
+      totalCredits: Number(e.totalCredits),
+      avgLatencyMs: Math.round(Number(e.avgLatencyMs)),
+    })),
   };
 }

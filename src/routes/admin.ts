@@ -2,7 +2,9 @@ import { Router, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from '../config/env';
 import { getUserById, getAllUsers, getUserCredits, getUserUsage } from '../lib/db/users';
-import { db } from '../lib/db/index';
+import { db } from '../lib/db/pg';
+import { credits, purchases, usageLogs, apiKeys } from '../lib/db/schema';
+import { sql, eq } from 'drizzle-orm';
 
 const router = Router();
 
@@ -17,7 +19,7 @@ function authenticateAdmin(req: Request, res: Response, next: Function) {
     });
   }
 
-  jwt.verify(token, config.jwtSecret, (err: any, decoded: any) => {
+  jwt.verify(token, config.jwtSecret, async (err: any, decoded: any) => {
     if (err) {
       return res.status(403).json({
         success: false,
@@ -25,7 +27,7 @@ function authenticateAdmin(req: Request, res: Response, next: Function) {
       });
     }
     
-    const user = getUserById(decoded.userId);
+    const user = await getUserById(decoded.userId);
     if (!user || !user.isAdmin) {
       return res.status(403).json({
         success: false,
@@ -40,34 +42,38 @@ function authenticateAdmin(req: Request, res: Response, next: Function) {
 
 router.get('/stats', authenticateAdmin, async (req: Request, res: Response) => {
   try {
-    const users = getAllUsers();
+    const usersList = await getAllUsers();
     
-    const totalCreditsStmt = db.prepare(`
-      SELECT COALESCE(SUM(amount), 0) as total FROM credits WHERE amount > 0
-    `);
-    const totalCreditsResult = totalCreditsStmt.get() as { total: number };
+    const totalCreditsResult = await db.select({ 
+      total: sql<number>`COALESCE(SUM(${credits.amount}), 0)` 
+    }).from(credits).where(sql`${credits.amount} > 0`);
     
-    const totalRevenueStmt = db.prepare(`
-      SELECT COALESCE(SUM(amount_paid), 0) as total FROM purchases WHERE status = 'completed'
-    `);
-    const totalRevenueResult = totalRevenueStmt.get() as { total: number };
+    const totalRevenueResult = await db.select({ 
+      total: sql<number>`COALESCE(SUM(${purchases.amountPaid}), 0)` 
+    }).from(purchases).where(eq(purchases.status, 'completed'));
     
-    const totalRequestsStmt = db.prepare(`
-      SELECT COUNT(*) as total FROM usage_logs
-    `);
-    const totalRequestsResult = totalRequestsStmt.get() as { total: number };
+    const totalRequestsResult = await db.select({ 
+      total: sql<number>`COUNT(*)` 
+    }).from(usageLogs);
+
+    const usersWithCredits = await Promise.all(
+      usersList.map(async (u) => ({
+        ...u,
+        credits: await getUserCredits(u.id),
+        apiKeyCount: (await db.select({ count: sql<number>`COUNT(*)` })
+          .from(apiKeys)
+          .where(eq(apiKeys.userId, u.id)))[0]?.count || 0,
+      }))
+    );
     
     res.json({
       success: true,
       data: {
-        totalUsers: users.length,
-        totalCreditsPurchased: totalCreditsResult.total,
-        totalRevenue: totalRevenueResult.total,
-        totalRequests: totalRequestsResult.total,
-        users: users.map(u => ({
-          ...u,
-          credits: getUserCredits(u.id),
-        })),
+        totalUsers: usersList.length,
+        totalCreditsPurchased: Number(totalCreditsResult[0]?.total) || 0,
+        totalRevenue: Number(totalRevenueResult[0]?.total) || 0,
+        totalRequests: Number(totalRequestsResult[0]?.total) || 0,
+        users: usersWithCredits,
       },
     });
   } catch (error: any) {

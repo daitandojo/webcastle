@@ -1,15 +1,16 @@
 // src/routes/capabilities.ts
 import { Request, Response } from 'express'
-import { scraperEngine, memoryCache } from '../scrapers'
+import { scraperEngine } from '../scrapers'
+import { redisCache } from '../lib/utils/redis-cache'
 import { config } from '../config/env'
 
 export const capabilitiesHandler = (_req: Request, res: Response) => {
   const capabilities = scraperEngine.getCapabilities()
-  const cacheStats = memoryCache.getStats()
+  const cacheStats = redisCache.getStats()
   
   res.json({
-    service: 'Scraping Service',
-    version: '0.1.0',
+    service: 'WebCastle',
+    version: '1.0.0',
     capabilities: capabilities.capabilities,
     supportedModes: capabilities.supportedModes,
     limits: capabilities.limits,
@@ -18,7 +19,6 @@ export const capabilitiesHandler = (_req: Request, res: Response) => {
       environment: config.nodeEnv,
       cacheEnabled: config.cacheEnabled,
       cacheTtlMs: config.cacheTtlMs,
-      cacheMaxItems: config.cacheMaxItems,
       rateLimitWindowMs: config.rateLimitWindowMs,
       rateLimitMaxRequests: config.rateLimitMaxRequests,
       scraperConcurrent: config.scraperConcurrent,
@@ -34,7 +34,6 @@ export const capabilitiesHandler = (_req: Request, res: Response) => {
       'POST /v1/scrape/images - Image hunt extraction',
       'POST /v1/scrape/links - Hyperlink extraction',
       'POST /v1/scrape/screenshot - Page screenshot',
-      'POST /v1/scrape/store - Scrape and store to Cogniti',
     ],
   })
 }

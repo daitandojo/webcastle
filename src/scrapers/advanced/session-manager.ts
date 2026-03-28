@@ -1,8 +1,9 @@
 // src/scrapers/advanced/session-manager.ts
-// Session Management - Persistent sessions, cookie jars, authenticated crawls
+// Session Management - Redis-backed persistent sessions, cookie jars, authenticated crawls
 
 import { type BrowserContext, type Page } from 'playwright';
 import crypto from 'crypto';
+import { sessionRedis } from '../../lib/redis';
 
 export interface Session {
   id: string;
@@ -35,10 +36,13 @@ export interface SessionMetadata {
 }
 
 export class SessionManager {
-  private sessions = new Map<string, Session>();
-  private contextToSession = new Map<string, string>();
   private maxSessions = 100;
   private sessionTtlMs = 7 * 24 * 60 * 60 * 1000; // 7 days
+  private sessionKeyPrefix = 'session';
+
+  private getKey(sessionId: string): string {
+    return `${this.sessionKeyPrefix}:${sessionId}`;
+  }
 
   async saveFromContext(context: BrowserContext, name: string, metadata?: SessionMetadata): Promise<string> {
     const cookies = await context.cookies();
@@ -87,43 +91,42 @@ export class SessionManager {
       metadata: metadata || {},
     };
 
-    this.sessions.set(sessionId, session);
-    this.cleanup();
-    
+    await sessionRedis.setex(
+      this.getKey(sessionId),
+      Math.ceil(this.sessionTtlMs / 1000),
+      JSON.stringify(session)
+    );
+
+    await this.cleanup();
     await page.close();
     return sessionId;
   }
 
   async applyToContext(context: BrowserContext, sessionId: string): Promise<boolean> {
-    const session = this.sessions.get(sessionId);
+    const session = await this.get(sessionId);
     if (!session) return false;
 
-    // Apply cookies
     await context.addCookies(session.cookies);
-
-    // Store session ID for reference
-    this.contextToSession.set(context.toString(), sessionId);
-    
-    // Update last used
-    session.lastUsed = Date.now();
+    await sessionRedis.setex(
+      `${this.sessionKeyPrefix}:ctx:${context.toString()}`,
+      Math.ceil(this.sessionTtlMs / 1000),
+      sessionId
+    );
     
     return true;
   }
 
   async applyToPage(page: Page, sessionId: string): Promise<boolean> {
-    const session = this.sessions.get(sessionId);
+    const session = await this.get(sessionId);
     if (!session) return false;
 
-    // Apply cookies to the context
     await this.applyToContext(page.context(), sessionId);
 
-    // Apply localStorage
     await page.addInitScript(() => {
       // @ts-ignore
       window.__sessionStorageData = arguments[0];
     }, session.localStorage);
 
-    // Apply sessionStorage
     await page.addInitScript(() => {
       // @ts-ignore
       const data = window.__sessionStorageData;
@@ -137,68 +140,110 @@ export class SessionManager {
     return true;
   }
 
-  get(sessionId: string): Session | null {
-    return this.sessions.get(sessionId) || null;
+  async get(sessionId: string): Promise<Session | null> {
+    const data = await sessionRedis.get(this.getKey(sessionId));
+    if (!data) return null;
+    
+    try {
+      const session = JSON.parse(data) as Session;
+      return session;
+    } catch {
+      return null;
+    }
   }
 
-  list(): Session[] {
-    return Array.from(this.sessions.values()).map(s => ({
-      ...s,
-      cookies: s.cookies.map(c => ({ ...c, value: '***' })), // Hide values
-    }));
+  async list(): Promise<Session[]> {
+    const keys = await sessionRedis.keys(`${this.sessionKeyPrefix}:session_*`);
+    const sessions: Session[] = [];
+    
+    for (const key of keys) {
+      const data = await sessionRedis.get(key);
+      if (data) {
+        try {
+          const session = JSON.parse(data) as Session;
+          sessions.push({
+            ...session,
+            cookies: session.cookies.map(c => ({ ...c, value: '***' })),
+          });
+        } catch {}
+      }
+    }
+    
+    return sessions;
   }
 
-  delete(sessionId: string): boolean {
-    return this.sessions.delete(sessionId);
+  async delete(sessionId: string): Promise<boolean> {
+    const result = await sessionRedis.del(this.getKey(sessionId));
+    return result > 0;
   }
 
-  updateMetadata(sessionId: string, metadata: Partial<SessionMetadata>): boolean {
-    const session = this.sessions.get(sessionId);
+  async updateMetadata(sessionId: string, metadata: Partial<SessionMetadata>): Promise<boolean> {
+    const session = await this.get(sessionId);
     if (!session) return false;
     
     session.metadata = { ...session.metadata, ...metadata };
+    await sessionRedis.setex(
+      this.getKey(sessionId),
+      Math.ceil(this.sessionTtlMs / 1000),
+      JSON.stringify(session)
+    );
     return true;
   }
 
   private generateSessionId(name: string): string {
-    const hash = crypto.createHash('md5').update(`${name}-${Date.now()}`).digest('hex');
+    const hash = crypto.createHash('md5').update(`${name}-${Date.now()}-${Math.random()}`).digest('hex');
     return `session_${hash.substring(0, 16)}`;
   }
 
-  private cleanup(): void {
-    if (this.sessions.size <= this.maxSessions) return;
+  private async cleanup(): Promise<void> {
+    const keys = await sessionRedis.keys(`${this.sessionKeyPrefix}:session_*`);
+    if (keys.length <= this.maxSessions) return;
 
-    const now = Date.now();
-    const sessions = Array.from(this.sessions.entries())
-      .map(([id, session]) => ({ id, lastUsed: session.lastUsed }))
-      .sort((a, b) => a.lastUsed - b.lastUsed);
+    const sessions: { id: string; lastUsed: number }[] = [];
+    for (const key of keys) {
+      const data = await sessionRedis.get(key);
+      if (data) {
+        try {
+          const session = JSON.parse(data) as Session;
+          sessions.push({ id: session.id, lastUsed: session.lastUsed });
+        } catch {}
+      }
+    }
 
+    sessions.sort((a, b) => a.lastUsed - b.lastUsed);
     const toDelete = sessions.slice(0, sessions.length - this.maxSessions);
+    
     for (const { id } of toDelete) {
-      this.sessions.delete(id);
+      await this.delete(id);
     }
   }
 
-  clearExpired(): number {
-    const now = Date.now();
+  async clearExpired(): Promise<number> {
+    const keys = await sessionRedis.keys(`${this.sessionKeyPrefix}:session_*`);
     let deleted = 0;
+    const now = Date.now();
     
-    for (const [id, session] of this.sessions) {
-      if (now - session.lastUsed > this.sessionTtlMs) {
-        this.sessions.delete(id);
-        deleted++;
+    for (const key of keys) {
+      const data = await sessionRedis.get(key);
+      if (data) {
+        try {
+          const session = JSON.parse(data) as Session;
+          if (now - session.lastUsed > this.sessionTtlMs) {
+            await sessionRedis.del(key);
+            deleted++;
+          }
+        } catch {}
       }
     }
     
     return deleted;
   }
 
-  getStats() {
+  async getStats() {
+    const keys = await sessionRedis.keys(`${this.sessionKeyPrefix}:session_*`);
     return {
-      totalSessions: this.sessions.size,
+      totalSessions: keys.length,
       maxSessions: this.maxSessions,
-      oldestSession: Math.min(...Array.from(this.sessions.values()).map(s => s.createdAt)),
-      newestSession: Math.max(...Array.from(this.sessions.values()).map(s => s.createdAt)),
     };
   }
 }

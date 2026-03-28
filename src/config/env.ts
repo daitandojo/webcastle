@@ -86,6 +86,13 @@ const envSchema = z.object({
 
   // Database
   DB_PATH: z.string().default('./data/webcastle.db'),
+  DATABASE_URL: z.string().optional(),
+  
+  // Redis
+  REDIS_HOST: z.string().default('localhost'),
+  REDIS_PORT: z.string().default('6379').transform(Number),
+  REDIS_PASSWORD: z.string().optional(),
+  REDIS_DB: z.string().default('0').transform(Number),
   
   // Stripe
   STRIPE_SECRET_KEY: z.string().optional(),
@@ -184,6 +191,13 @@ export const config = {
   
   // Database
   dbPath: env.DB_PATH,
+  databaseUrl: env.DATABASE_URL,
+  
+  // Redis
+  redisHost: env.REDIS_HOST,
+  redisPort: env.REDIS_PORT,
+  redisPassword: env.REDIS_PASSWORD,
+  redisDb: env.REDIS_DB,
   
   // Stripe
   stripeSecretKey: env.STRIPE_SECRET_KEY,

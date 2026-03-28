@@ -1,4 +1,4 @@
-import { verifyApiKey, deductCredits, logUsage } from './users';
+import { verifyApiKey as verifyApiKeyDb, deductCredits, logUsage } from './users';
 
 const CREDIT_COSTS: Record<string, number> = {
   '/v1/scrape': 1,
@@ -22,7 +22,7 @@ export function getCreditCost(endpoint: string): number {
 }
 
 export function checkCredits(required: number): (req: any, res: any, next: any) => void {
-  return (req: any, res: any, next: any) => {
+  return async (req: any, res: any, next: any) => {
     const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
     
     if (!apiKey) {
@@ -32,7 +32,7 @@ export function checkCredits(required: number): (req: any, res: any, next: any) 
       });
     }
 
-    const result = verifyApiKey(apiKey);
+    const result = await verifyApiKeyDb(apiKey);
     
     if (!result.valid || !result.userId) {
       return res.status(401).json({
@@ -69,8 +69,8 @@ export function deductCreditsAfter(req: any, res: any, next: any) {
     
     if (req.userId && req.apiKeyId && req.creditCost) {
       if (statusCode >= 200 && statusCode < 300) {
-        deductCredits(req.userId, req.creditCost);
-        logUsage(req.userId, req.apiKeyId, req.path, req.creditCost, latencyMs, statusCode);
+        deductCredits(req.userId, req.creditCost).then(() => {});
+        logUsage(req.userId, req.apiKeyId, req.path, req.creditCost, latencyMs, statusCode).then(() => {});
       }
     }
     

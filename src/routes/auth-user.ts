@@ -26,7 +26,7 @@ router.post('/register', async (req: Request, res: Response) => {
   try {
     const { email, password, name } = registerSchema.parse(req.body);
 
-    const existing = getUserByEmail(email);
+    const existing = await getUserByEmail(email);
     if (existing) {
       return res.status(400).json({
         success: false,
@@ -34,7 +34,7 @@ router.post('/register', async (req: Request, res: Response) => {
       });
     }
 
-    const user = createUser({ email, password, name });
+    const user = await createUser({ email, password, name });
 
     const token = jwt.sign(
       { userId: user.id, email: user.email },
@@ -43,8 +43,7 @@ router.post('/register', async (req: Request, res: Response) => {
     );
 
     const initialCredits = 10;
-    const { addCredits } = await import('../lib/db/users');
-    addCredits(user.id, initialCredits);
+    await import('../lib/db/users').then(m => m.addCredits(user.id, initialCredits));
 
     res.status(201).json({
       success: true,
@@ -72,7 +71,7 @@ router.post('/login', async (req: Request, res: Response) => {
   try {
     const { email, password } = loginSchema.parse(req.body);
 
-    const user = getUserByEmail(email);
+    const user = await getUserByEmail(email);
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -95,7 +94,7 @@ router.post('/login', async (req: Request, res: Response) => {
       { expiresIn: config.jwtExpiresIn as any }
     );
 
-    const credits = getUserCredits(user.id);
+    const credits = await getUserCredits(user.id);
 
     res.json({
       success: true,
@@ -145,7 +144,7 @@ function authenticateToken(req: Request, res: Response, next: Function) {
 router.get('/me', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = req.body.userId;
-    const user = getUserById(userId);
+    const user = await getUserById(userId);
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -153,10 +152,10 @@ router.get('/me', authenticateToken, async (req: Request, res: Response) => {
       });
     }
 
-    const credits = getUserCredits(userId);
-    const apiKeys = getUserApiKeys(userId);
-    const usage = getUserUsage(userId, 30);
-    const purchases = getPurchaseHistory(userId);
+    const credits = await getUserCredits(userId);
+    const apiKeys = await getUserApiKeys(userId);
+    const usage = await getUserUsage(userId, 30);
+    const purchases = await getPurchaseHistory(userId);
 
     res.json({
       success: true,
@@ -181,7 +180,7 @@ router.post('/api-keys', authenticateToken, async (req: Request, res: Response) 
     const userId = req.body.userId;
     const { name } = createKeySchema.parse(req.body);
 
-    const apiKey = createApiKey(userId, name);
+    const apiKey = await createApiKey(userId, name);
 
     res.status(201).json({
       success: true,
@@ -206,7 +205,7 @@ router.delete('/api-keys/:keyId', authenticateToken, async (req: Request, res: R
     const userId = req.body.userId;
     const { keyId } = req.params;
 
-    const deleted = deleteApiKey(userId, keyId);
+    const deleted = await deleteApiKey(userId, keyId);
     if (!deleted) {
       return res.status(404).json({
         success: false,
@@ -252,7 +251,7 @@ router.post('/credits/checkout', authenticateToken, async (req: Request, res: Re
   }
 });
 
-router.get('/credits/packages', (req: Request, res: Response) => {
+router.get('/credits/packages', (_req: Request, res: Response) => {
   res.json({
     success: true,
     data: CREDIT_PACKAGES.map(pkg => ({
